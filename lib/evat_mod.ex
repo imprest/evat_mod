@@ -4,6 +4,7 @@ defmodule EvatMod do
   """
   @default_date Date.from_iso8601!("2016-10-01")
   @default_time Time.from_iso8601!("08:00:00")
+  alias Decimal, as: D
 
   @doc """
   Check api server status is up.
@@ -63,6 +64,46 @@ defmodule EvatMod do
     |> Map.get(:body)
   end
 
+  def upload_invoice(invoice_id) do
+    random_testing_id =
+      (:rand.uniform() * 100_000) |> Float.to_string() |> String.split(".") |> hd
+
+    invoice =
+      get_invoice(invoice_id)
+      |> Map.update!(
+        :invoiceNumber,
+        fn x -> x <> "-" <> random_testing_id end
+      )
+
+    invoice =
+      invoice
+      |> Map.update!(:totalAmount, &Decimal.to_float(&1))
+      |> Map.update!(:totalLevy, &Decimal.to_float(&1))
+      |> Map.update!(:totalVat, &Decimal.to_float(&1))
+      |> Map.update!(:exchangeRate, &Decimal.to_float(&1))
+
+    new_items =
+      Map.get(invoice, :items)
+      |> Enum.map(fn x ->
+        x
+        |> Map.update!(:quantity, &Decimal.to_float(&1))
+        |> Map.update!(:unitPrice, &Decimal.to_float(&1))
+        |> Map.update!(:levyAmountA, &Decimal.to_float(&1))
+        |> Map.update!(:levyAmountB, &Decimal.to_float(&1))
+        |> Map.update!(:levyAmountC, &Decimal.to_float(&1))
+        |> Map.update!(:levyAmountD, &Decimal.to_float(&1))
+        |> Map.update!(:levyAmountE, &Decimal.to_float(&1))
+      end)
+
+    invoice = Map.put(invoice, :items, new_items)
+    IO.inspect(invoice)
+
+    req_base()
+    |> Req.post!(url: "invoice", json: invoice)
+
+    # |> Map.get(:body)
+  end
+
   def get_invoice(invoice_id) do
     [invoice] =
       ExDbase.parse(
@@ -72,36 +113,39 @@ defmodule EvatMod do
           "IN_NO",
           "IN_DT",
           "IN_PARTY",
-          "IN_WRE",
-          "IN_STK",
+          "IN_TOT",
           "IN_CASH",
           "IN_CHQ",
           "IN_CREDIT",
-          "IN_DET1",
-          "IN_DET2",
-          "IN_DET3",
-          "IN_LMU",
-          "IN_LMD",
-          "IN_LMT"
+          "IN_LMU"
         ],
         fn x ->
           id = to_invoice_id(x["IN_TP"], Integer.to_string(x["IN_NO"]))
 
-          if id === invoice_id do
+          if id === invoice_id and
+               x["IN_TOT"] === D.add(x["IN_CASH"], D.add(x["IN_CREDIT"], x["IN_CHQ"])) do
             %{
-              id: id,
-              date: to_date(x["IN_DT"]),
               customer_id: x["IN_PARTY"],
-              price_level: nil?(x["IN_WRE"]),
-              from_stock: nil?(x["IN_STK"]),
+              calculationType: "INCLUSIVE",
+              currency: "GHS",
+              exchangeRate: Decimal.new("1.0"),
+              flag: "INVOICE",
+              invoiceNumber: id,
+              saleType: "NORMAL",
+              totalAmount: x["IN_TOT"],
+              totalLevy: D.new(0),
+              totalVat: D.new(0),
+              transactionDate:
+                Date.to_string(to_date(x["IN_DT"])) <>
+                  "T" <> Time.to_string(Time.truncate(Time.utc_now(), :second)) <> "Z",
+              userName: nil?(x["IN_LMU"]),
+              voucherAmount: 0.0,
+              discountType: "GENERAL",
+              discountAmount: 0.0,
+              # Below fields to be dropped later
               cash: x["IN_CASH"],
               cheque: x["IN_CHQ"],
-              credit: x["IN_CREDIT"],
-              detail1: nil?(x["IN_DET1"]),
-              detail2: nil?(:unicode.characters_to_binary(x["IN_DET2"], :latin1, :utf8)),
-              detail3: nil?(x["IN_DET3"]),
-              lmu: nil?(x["IN_LMU"]),
-              lmt: to_timestamp(x["IN_LMD"], x["IN_LMT"])
+              credit: x["IN_CREDIT"]
             }
           else
             nil
@@ -109,45 +153,36 @@ defmodule EvatMod do
         end
       )
 
-    details =
+    items =
       ExDbase.parse(
         "/home/hvaria/Documents/backup/MGP23/SIDETINV.DBF",
         [
-          "IN_TP",
-          "IN_NO",
-          "IN_DT",
-          "IN_PARTY",
-          "IN_WRE",
-          "IN_STK",
-          "IN_CASH",
-          "IN_CHQ",
-          "IN_CREDIT",
-          "IN_DET1",
-          "IN_DET2",
-          "IN_DET3",
-          "IN_LMU",
-          "IN_LMD",
-          "IN_LMT"
+          "ID_NO",
+          "ID_SRNO",
+          "ID_ITM",
+          "ID_DESC",
+          "ID_QTY",
+          "ID_RATE"
         ],
         fn x ->
-          IO.inspect(x["IN_NO"])
-          id = to_invoice_id(x["IN_TP"], Integer.to_string(x["IN_NO"]))
-
-          if id === invoice_id do
+          if x["ID_NO"] === invoice_id do
             %{
-              id: id,
-              date: to_date(x["IN_DT"]),
-              customer_id: x["IN_PARTY"],
-              price_level: nil?(x["IN_WRE"]),
-              from_stock: nil?(x["IN_STK"]),
-              cash: x["IN_CASH"],
-              cheque: x["IN_CHQ"],
-              credit: x["IN_CREDIT"],
-              detail1: nil?(x["IN_DET1"]),
-              detail2: nil?(:unicode.characters_to_binary(x["IN_DET2"], :latin1, :utf8)),
-              detail3: nil?(x["IN_DET3"]),
-              lmu: nil?(x["IN_LMU"]),
-              lmt: to_timestamp(x["IN_LMD"], x["IN_LMT"])
+              itemCategory: "EXM",
+              itemCode: x["ID_ITM"],
+              description: x["ID_DESC"],
+              quantity: x["ID_QTY"],
+              # NHIL
+              levyAmountA: D.new(0),
+              # GETFUND
+              levyAmountB: D.new(0),
+              # COVID
+              levyAmountC: D.new(0),
+              # CST
+              levyAmountD: D.new(0),
+              # TOURISM
+              levyAmountE: D.new(0),
+              unitPrice: x["ID_RATE"],
+              discountAmount: 0.0
             }
           else
             nil
@@ -155,7 +190,52 @@ defmodule EvatMod do
         end
       )
 
-    details
+    [customer] =
+      if D.compare(invoice.cash, invoice.totalAmount) === :eq do
+        [
+          %{
+            businessPartnerName: "Cash Customer",
+            businessPartnerTin: "C0000000000"
+          }
+        ]
+      else
+        ExDbase.parse(
+          "/home/hvaria/Documents/backup/MGP23/FISLMST.DBF",
+          [
+            "SL_GLCD",
+            "SL_CODE",
+            "SL_DESC",
+            "SL_STNO"
+          ],
+          fn x ->
+            if x["SL_GLCD"] === "203000" and x["SL_CODE"] === invoice.customer_id do
+              %{
+                businessPartnerName: x["SL_DESC"],
+                businessPartnerTin: "C0000000000"
+                # businessPartnerTin: x["SL_STNO"]
+              }
+            else
+              nil
+            end
+          end
+        )
+      end
+
+    invoice = Map.put_new(invoice, :items, items)
+    invoice = Map.merge(invoice, customer)
+
+    # check invoice totalAmount is matching invoice items
+    items_total =
+      for x <- invoice.items, reduce: D.new(0) do
+        acc ->
+          D.add(acc, D.mult(x.quantity, x.unitPrice))
+      end
+
+    if D.compare(invoice.totalAmount, items_total) === :eq do
+      invoice |> Map.drop([:cash, :cheque, :credit])
+    else
+      "Invoice total does not match invoice items total"
+    end
   end
 
   defp req_base() do
