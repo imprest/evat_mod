@@ -95,13 +95,14 @@ defmodule EvatMod do
         |> Map.update!(:levyAmountE, &Decimal.to_float(&1))
       end)
 
-    invoice = Map.put(invoice, :items, new_items)
+    invoice =
+      Map.put(invoice, :items, new_items)
+
     IO.inspect(invoice)
 
     req_base()
     |> Req.post!(url: "invoice", json: invoice)
-
-    # |> Map.get(:body)
+    |> Map.get(:body)
   end
 
   def get_invoice(invoice_id) do
@@ -117,6 +118,7 @@ defmodule EvatMod do
           "IN_CASH",
           "IN_CHQ",
           "IN_CREDIT",
+          "IN_LMT",
           "IN_LMU"
         ],
         fn x ->
@@ -137,11 +139,8 @@ defmodule EvatMod do
               totalVat: D.new(0),
               transactionDate:
                 Date.to_string(to_date(x["IN_DT"])) <>
-                  "T" <> Time.to_string(Time.truncate(Time.utc_now(), :second)) <> "Z",
+                  "T" <> Time.to_string(to_time(x["IN_LMT"])) <> "Z",
               userName: nil?(x["IN_LMU"]),
-              voucherAmount: 0.0,
-              discountType: "GENERAL",
-              discountAmount: 0.0,
               # Below fields to be dropped later
               cash: x["IN_CASH"],
               cheque: x["IN_CHQ"],
@@ -181,8 +180,7 @@ defmodule EvatMod do
               levyAmountD: D.new(0),
               # TOURISM
               levyAmountE: D.new(0),
-              unitPrice: x["ID_RATE"],
-              discountAmount: 0.0
+              unitPrice: x["ID_RATE"]
             }
           else
             nil
@@ -236,6 +234,29 @@ defmodule EvatMod do
     else
       "Invoice total does not match invoice items total"
     end
+  end
+
+  def get_customers_data() do
+    ExDbase.parse(
+      "/home/hvaria/Documents/backup/MGP23/FISLMST.DBF",
+      [
+        "SL_GLCD",
+        "SL_CODE",
+        "SL_DESC",
+        "SL_STNO"
+      ],
+      fn x ->
+        if x["SL_GLCD"] === "203000" do
+          %{
+            code: x["SL_CODE"],
+            businessPartnerName: x["SL_DESC"],
+            businessPartnerTin: x["SL_STNO"]
+          }
+        else
+          nil
+        end
+      end
+    )
   end
 
   defp req_base() do
