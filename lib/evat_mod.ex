@@ -268,6 +268,10 @@ defmodule EvatMod do
     code <> String.duplicate(" ", 9 - String.length(num)) <> num
   end
 
+  defp url_to_qrcode(url) do
+    url |> QRCode.create(:medium) |> QRCode.render(:svg) |> QRCode.save("/tmp/qrcode.svg")
+  end
+
   @spec nil?(any()) :: any()
   def nil?(""), do: nil
   def nil?(string), do: string

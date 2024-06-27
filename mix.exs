@@ -23,6 +23,7 @@ defmodule EvatMod.MixProject do
     [
       {:req, "~> 0.5.0"},
       {:ex_dbase, "~> 1.0.0"},
+      {:qr_code, "~> 3.0.0"},
       {:exsync, "~> 0.4.0", only: :dev}
       # {:dep_from_hexpm, "~> 0.3.0"},
       # {:dep_from_git, git: "https://github.com/elixir-lang/my_dep.git", tag: "0.1.0"}
